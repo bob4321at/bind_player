@@ -156,13 +156,18 @@ var songs []string
 var selector_img, _, _ = ebitenutil.NewImageFromFile("./selector.png")
 
 func main() {
+	home_path, err := os.UserHomeDir()
+	if err != nil {
+		panic(err)
+	}
+
 	ebiten.SetWindowSize(1280, 360)
 	size_x, size_y := ebiten.Monitor().Size()
 	ebiten.SetWindowPosition(size_x/4, size_y/3)
 	ebiten.SetWindowDecorated(false)
 	ebiten.SetWindowFloating(true)
 
-	font_bytes, err := os.ReadFile("./ComicRelief-Regular.ttf")
+	font_bytes, err := os.ReadFile(home_path + "/Documents/ComicRelief-Regular.ttf")
 	if err != nil {
 		panic(err)
 	}
@@ -181,11 +186,6 @@ func main() {
 		Direction: text.DirectionLeftToRight,
 		Size:      32,
 		Language:  language.AmericanEnglish,
-	}
-
-	home_path, err := os.UserHomeDir()
-	if err != nil {
-		panic(err)
 	}
 
 	music_dir, err := os.ReadDir(home_path + "/Music")
