@@ -3,13 +3,16 @@ package main
 import (
 	"bytes"
 	"image/color"
+	"log"
 	"os"
+	"os/exec"
 	"strings"
 
 	"github.com/hajimehoshi/ebiten/v2"
 	"github.com/hajimehoshi/ebiten/v2/ebitenutil"
 	"github.com/hajimehoshi/ebiten/v2/inpututil"
 	"github.com/hajimehoshi/ebiten/v2/text/v2"
+	"golang.design/x/clipboard"
 	"golang.org/x/text/language"
 )
 
@@ -59,66 +62,89 @@ var key_to_string = map[ebiten.Key]string{
 }
 
 func (g *Game) Update() error {
-	if ebiten.IsKeyPressed(ebiten.KeyEscape) {
-		os.Exit(0)
-	}
-
-	hit_keys := inpututil.AppendJustPressedKeys(nil)
-
-	if hit_keys != nil {
-		typed += key_to_string[hit_keys[0]]
-	}
-
-	if len(typed) != 0 {
-		if inpututil.IsKeyJustPressed(ebiten.KeyBackspace) {
-			typed = typed[:len(typed)-1]
+	if !Downloading {
+		if ebiten.IsKeyPressed(ebiten.KeyEscape) {
+			os.Exit(0)
 		}
-	}
 
-	if inpututil.IsKeyJustPressed(ebiten.KeyDelete) {
-		typed = ""
-	}
+		var hit_keys []ebiten.Key
 
-	list_to_render = nil
-	for _, song := range songs {
-		if strings.Contains(strings.ToUpper(song), typed) {
-			list_to_render = append(list_to_render, song)
+		if !ebiten.IsKeyPressed(ebiten.KeyControl) {
+			hit_keys = inpututil.AppendJustPressedKeys(nil)
 		}
-	}
 
-	if inpututil.IsKeyJustPressed(ebiten.KeyTab) {
-		if len(list_to_render) > scroll+1 {
-			scroll += 1
+		if hit_keys != nil {
+			if ebiten.IsKeyPressed(ebiten.KeyShift) {
+				typed += key_to_string[hit_keys[0]]
+			} else {
+				typed += strings.ToLower(key_to_string[hit_keys[0]])
+			}
 		}
-		if ebiten.IsKeyPressed(ebiten.KeyShift) {
+
+		if len(typed) != 0 {
+			if inpututil.IsKeyJustPressed(ebiten.KeyBackspace) {
+				typed = typed[:len(typed)-1]
+			}
+		}
+
+		if inpututil.IsKeyJustPressed(ebiten.KeyDelete) {
+			typed = ""
+		}
+
+		list_to_render = nil
+		for _, song := range songs {
+			if strings.Contains(strings.ToUpper(song), strings.ToUpper(typed)) {
+				list_to_render = append(list_to_render, song)
+			}
+		}
+
+		if inpututil.IsKeyJustPressed(ebiten.KeyTab) {
 			if len(list_to_render) > scroll+1 {
-				scroll -= 2
+				scroll += 1
+			}
+			if ebiten.IsKeyPressed(ebiten.KeyShift) {
+				if len(list_to_render) > scroll+1 {
+					scroll -= 2
+				}
+			}
+		}
+
+		if scroll > len(list_to_render) {
+			scroll = 0
+		}
+
+		if inpututil.IsKeyJustPressed(ebiten.KeyEnter) {
+			home_dir, err := os.UserHomeDir()
+			if err != nil {
+				panic(err)
+			}
+			err = os.Truncate(home_dir+"/Documents/current_song", 0)
+			if err != nil {
+				panic(err)
+			}
+			f, err := os.OpenFile(home_dir+"/Documents/current_song", os.O_WRONLY, 0644)
+			f.WriteString(list_to_render[scroll] + "^")
+			f.Close()
+
+			os.Exit(0)
+		}
+
+		if inpututil.IsKeyJustPressed(ebiten.KeyC) {
+			if ebiten.IsKeyPressed(ebiten.KeyControl) {
+				clipboardText := string(clipboard.Read(clipboard.FmtText))
+
+				if strings.Contains(clipboardText, "youtube.com") {
+					go DownloadSong(clipboardText, typed)
+					Downloading = true
+				}
 			}
 		}
 	}
 
-	if scroll > len(list_to_render) {
-		scroll = 0
-	}
-
-	if inpututil.IsKeyJustPressed(ebiten.KeyEnter) {
-		home_dir, err := os.UserHomeDir()
-		if err != nil {
-			panic(err)
-		}
-		err = os.Truncate(home_dir+"/Documents/current_song", 0)
-		if err != nil {
-			panic(err)
-		}
-		f, err := os.OpenFile(home_dir+"/Documents/current_song", os.O_WRONLY, 0644)
-		f.WriteString(list_to_render[scroll] + "^")
-		f.Close()
-
-		os.Exit(0)
-	}
-
 	return nil
 }
+
+var Downloading = false
 
 var scroll = 0
 
@@ -126,21 +152,28 @@ var list_to_render []string
 
 func (g *Game) Draw(screen *ebiten.Image) {
 	screen.Fill(color.RGBA{0, 0, 0, 175})
-	text_op := text.DrawOptions{}
-	text_op.GeoM.Translate(640, 16)
-	text_op.PrimaryAlign = text.AlignCenter
-	text.Draw(screen, typed, font_face, &text_op)
+	if !Downloading {
+		text_op := text.DrawOptions{}
+		text_op.GeoM.Translate(640, 16)
+		text_op.PrimaryAlign = text.AlignCenter
+		text.Draw(screen, typed, font_face, &text_op)
 
-	for i, song_element := range list_to_render {
-		if i == scroll {
-			text_op.GeoM.Reset()
-			text_op.GeoM.Translate(640, 16+32*float64(i)+64-float64(scroll*32))
-			text.Draw(screen, ">"+song_element, list_font_face, &text_op)
-		} else {
-			text_op.GeoM.Reset()
-			text_op.GeoM.Translate(640, 16+32*float64(i)+64-float64(scroll*32))
-			text.Draw(screen, song_element, list_font_face, &text_op)
+		for i, song_element := range list_to_render {
+			if i == scroll {
+				text_op.GeoM.Reset()
+				text_op.GeoM.Translate(640, 16+32*float64(i)+64-float64(scroll*32))
+				text.Draw(screen, ">"+song_element, list_font_face, &text_op)
+			} else {
+				text_op.GeoM.Reset()
+				text_op.GeoM.Translate(640, 16+32*float64(i)+64-float64(scroll*32))
+				text.Draw(screen, song_element, list_font_face, &text_op)
+			}
 		}
+	} else {
+		text_op := text.DrawOptions{}
+		text_op.GeoM.Translate(640, 360/2)
+		text_op.PrimaryAlign = text.AlignCenter
+		text.Draw(screen, "Downloading", font_face, &text_op)
 	}
 }
 
@@ -154,6 +187,21 @@ var list_font_face *text.GoTextFace
 var songs []string
 
 var selector_img, _, _ = ebitenutil.NewImageFromFile("./selector.png")
+
+func DownloadSong(SongUrl, FileName string) {
+	homepath, err := os.UserHomeDir()
+	if err != nil {
+		panic(err)
+	}
+	FileName = homepath + "/Music/" + FileName
+	download := exec.Command("yt-dlp", "-o", FileName, "-x", "--audio-format", "mp3", SongUrl)
+
+	if err := download.Run(); err != nil {
+		log.Fatal(err)
+	}
+
+	Downloading = false
+}
 
 func main() {
 	home_path, err := os.UserHomeDir()

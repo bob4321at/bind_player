@@ -10,7 +10,10 @@ import (
 	"github.com/gopxl/beep/v2/speaker"
 )
 
+const targetSampleRate = beep.SampleRate(44100)
+
 func main() {
+	speaker.Init(targetSampleRate, targetSampleRate.N(time.Second/30))
 	for true {
 		home_path, err := os.UserHomeDir()
 		if err != nil {
@@ -53,10 +56,10 @@ func main() {
 			}
 			defer streamer.Close()
 
-			speaker.Init(format.SampleRate, format.SampleRate.N(time.Second/30))
+			resampled := beep.Resample(4, format.SampleRate, targetSampleRate, streamer)
 
 			done := make(chan bool)
-			speaker.Play(beep.Seq(streamer, beep.Callback(func() {
+			speaker.Play(beep.Seq(resampled, beep.Callback(func() {
 				done <- true
 			})))
 
